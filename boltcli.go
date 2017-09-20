@@ -109,10 +109,8 @@ GLOBAL OPTIONS:
 			return failedOperationContext.Print()
 		default:
 			if bucket != "" {
-
 				if key != "" {
 					data := getBucketKeyValue(file, bucket, key)
-					os.Stdout.Write(data)
 					if data != nil {
 						succeedOperationContext.Data = data
 						return succeedOperationContext.Print()
@@ -126,7 +124,6 @@ GLOBAL OPTIONS:
 				}
 			} else {
 				data := getBuckets(file)
-				os.Stdout.Write(data)
 				if data != nil {
 					succeedOperationContext.Data = data
 					return succeedOperationContext.Print()
@@ -147,6 +144,7 @@ type Context struct {
 
 // Print print to console
 func (context *Context) Print() error {
+	// fmt.Println("==> context: ", context)
 	b, err := json.Marshal(context)
 	if err != nil {
 		return err
@@ -166,7 +164,7 @@ func getDb(file string) *bolt.DB {
 }
 
 // 获取Bucket列表
-func getBuckets(file string) []byte {
+func getBuckets(file string) interface{} {
 	db := getDb(file)
 	defer db.Close()
 
@@ -178,20 +176,16 @@ func getBuckets(file string) []byte {
 		})
 		return nil
 	})
-	b, err := json.Marshal(bucketsList)
-	if err != nil {
-		return nil
-	}
-	return b
+	return bucketsList
 }
 
 // 获取全部键值
-func getBucketKeys(file string, bucket string) []byte {
+func getBucketKeys(file string, bucket string) interface{} {
 	db := getDb(file)
 	defer db.Close()
 
 	type Pattern struct {
-		Key   []byte `json:"key"`
+		Key   string `json:"key"`
 		Value string `json:"value"`
 	}
 	patterns := []Pattern{}
@@ -201,7 +195,8 @@ func getBucketKeys(file string, bucket string) []byte {
 		if b != nil {
 			b.ForEach(func(k, v []byte) error {
 				if strings.Index(string(k), "_client_") == -1 && strings.Index(string(k), "_user_") == -1 {
-					patterns = append(patterns, Pattern{Key: k, Value: string(v)})
+					var sx16 = fmt.Sprintf("0x%x", k)
+					patterns = append(patterns, Pattern{Key: sx16, Value: string(v)})
 				}
 				return nil
 			})
@@ -209,14 +204,10 @@ func getBucketKeys(file string, bucket string) []byte {
 		}
 		return nil
 	})
-	b, err := json.Marshal(patterns)
-	if err != nil {
-		return nil
-	}
-	return b
+	return patterns
 }
 
-func getBucketKeyValue(file string, bucket string, key string) []byte {
+func getBucketKeyValue(file string, bucket string, key string) interface{} {
 	db := getDb(file)
 	defer db.Close()
 
@@ -230,7 +221,7 @@ func getBucketKeyValue(file string, bucket string, key string) []byte {
 		}
 		return nil
 	})
-	return returnValue
+	return string(returnValue)
 }
 
 // 删除 key
