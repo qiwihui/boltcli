@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/boltdb/bolt"
+	"github.com/spf13/viper"
 	"github.com/urfave/cli"
 )
 
 func main() {
 	var file string
+	var config string
 	var action string
 	var key string
 	var value string
@@ -38,7 +41,7 @@ EXAMPLES:
 
   Please install jq first.
 
-  1. $GOPATH/bin/boltcli -f dbshield.db -c get | jq
+  1. $GOPATH/bin/boltcli -f dbshield.db -t get | jq
   
   {
 	"return_code": 0,
@@ -50,7 +53,7 @@ EXAMPLES:
 	]
   }
 
-  2. $GOPATH/bin/boltcli -f dbshield.db -c get -b pattern | jq
+  2. $GOPATH/bin/boltcli -f dbshield.db -t get -b pattern | jq
 
   {
 	"return_code": 0,
@@ -87,7 +90,12 @@ AUTHOR:
 			Destination: &file,
 		},
 		cli.StringFlag{
-			Name:        "action, c",
+			Name:        "config, c",
+			Usage:       "DBShield config file",
+			Destination: &config,
+		},
+		cli.StringFlag{
+			Name:        "action, t",
 			Usage:       "action to update boltdb: get(default), set, delete",
 			Destination: &action,
 		},
@@ -99,6 +107,7 @@ AUTHOR:
 		cli.StringFlag{
 			Name:        "key, k",
 			Usage:       "boltdb `KEY` to view",
+			Value:       "",
 			Destination: &key,
 		},
 		cli.StringFlag{
@@ -110,14 +119,37 @@ AUTHOR:
 	app.Action = func(c *cli.Context) error {
 
 		context := Context{}
-		if file == "" {
+		var dbLocation string
+		if file == "" && config == "" {
 			context.ReturnCode = -1
-			context.Message = "No file input"
+			context.Message = "No DBShield config file or boltdb file input"
 			return context.Print()
+		} else if config != "" {
+			if _, err := os.Stat(config); os.IsNotExist(err) {
+				context.ReturnCode = -1
+				context.Message = "DBShield config file not found!"
+				return context.Print()
+			}
+			viper.SetConfigFile(config)
+			// Read the config file
+			err := viper.ReadInConfig()
+			if err != nil {
+				context.ReturnCode = -1
+				context.Message = "DBShield config file read error!"
+				return context.Print()
+			}
+			TargetIP, err := strConfig("targetIP")
+			if err != nil {
+				return err
+			}
+			DBType := strConfigDefualt("dbms", "mysql")
+			DBDir := strConfigDefualt("dbDir", os.TempDir()+"/model")
+			dbLocation = path.Join(DBDir, TargetIP+"_"+DBType) + ".db"
+		} else {
+			dbLocation = file
 		}
-
-		// check if db file exist
-		if _, err := os.Stat(file); os.IsNotExist(err) {
+		// check if db file exist, check DBShield config first
+		if _, err := os.Stat(dbLocation); os.IsNotExist(err) {
 			context.ReturnCode = -1
 			context.Message = "DB file not found!"
 			return context.Print()
@@ -134,7 +166,7 @@ AUTHOR:
 		switch action {
 		case "set":
 			if bucket != "" && key != "" && value != "" {
-				err := updateBucketKey(file, bucket, key, value)
+				err := updateBucketKey(dbLocation, bucket, key, value)
 				if err != nil {
 					return succeedOperationContext.Print()
 				}
@@ -142,7 +174,7 @@ AUTHOR:
 			return failedOperationContext.Print()
 		case "delete":
 			if bucket != "" && key != "" {
-				err := deleteBucketKey(file, bucket, key)
+				err := deleteBucketKey(dbLocation, bucket, key)
 				if err == nil {
 					return succeedOperationContext.Print()
 				}
@@ -151,20 +183,21 @@ AUTHOR:
 		default:
 			if bucket != "" {
 				if key != "" {
-					data := getBucketKeyValue(file, bucket, key)
+					data := getBucketKeyValue(dbLocation, bucket, key)
 					if data != nil {
 						succeedOperationContext.Data = data
 						return succeedOperationContext.Print()
 					}
 				} else {
-					data := getBucketKeys(file, bucket)
+					data := getBucketKeys(dbLocation, bucket)
 					if data != nil {
 						succeedOperationContext.Data = data
 						return succeedOperationContext.Print()
 					}
 				}
 			} else {
-				data := getBuckets(file)
+				// fmt.Println("get bucketlist")
+				data := getBuckets(dbLocation)
 				if data != nil {
 					succeedOperationContext.Data = data
 					return succeedOperationContext.Print()
@@ -181,6 +214,25 @@ type Context struct {
 	ReturnCode int         `json:"return_code"`
 	Message    string      `json:"message"`
 	Data       interface{} `json:"data"`
+}
+
+func strConfig(key string) (ret string, err error) {
+	if viper.IsSet(key) {
+		ret = viper.GetString(key)
+		return
+	}
+	// err = fmt.Errorf("Invalid '%s' cofiguration", key)
+	return
+}
+
+func strConfigDefualt(key, defaultValue string) (ret string) {
+	if viper.IsSet(key) {
+		ret = viper.GetString(key)
+		return
+	}
+	// logger.Infof("'%s' not configured, assuming: %s", key, defaultValue)
+	ret = defaultValue
+	return
 }
 
 // Print print to console
@@ -253,7 +305,6 @@ func getBucketKeyValue(file string, bucket string, key string) interface{} {
 	defer db.Close()
 
 	var returnValue []byte
-
 	db.View(func(tx *bolt.Tx) error {
 		curBucket := tx.Bucket([]byte(bucket))
 		if strings.Index(string(key), "_client_") == -1 && strings.Index(string(key), "_user_") == -1 {
