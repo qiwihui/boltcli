@@ -18,12 +18,14 @@ import (
 )
 
 func main() {
-	var file string
-	var config string
-	var action string
-	var key string
-	var value string
-	var bucket string
+	var (
+		file   string
+		config string
+		action string
+		key    string
+		value  string
+		bucket string
+	)
 
 	cli.AppHelpTemplate = `
 {{.Name}} - {{.Usage}}
@@ -46,7 +48,7 @@ EXAMPLES:
 
   Please install jq first.
 
-  1. $GOPATH/bin/boltcli -f dbshield.db -t get | jq
+  1. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t get | jq
   
   {
 	"return_code": 0,
@@ -58,7 +60,7 @@ EXAMPLES:
 	]
   }
 
-  2. $GOPATH/bin/boltcli -f dbshield.db -t get -b pattern | jq
+  2. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t get -b pattern | jq
 
   {
 	"return_code": 0,
@@ -79,6 +81,29 @@ EXAMPLES:
 	]
   }
 
+  3. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t get -b pattern -k 0x0000e0030000002a0000e0076669727374 | jq
+
+  {
+	"return_code": 0,
+	"message": "success",
+	"data": "select * from first"
+  }
+
+  4. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t set -b pattern -k 0x0000e0030000002a0000e0076669727374 -r "select * from first;" | jq
+ 
+  {
+	"return_code": 0,
+	"message": "success",
+	"data": null
+  }
+
+  5. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t delete -b pattern -k 0x0000e0030000002a0000e0076669727374 | jq
+  
+	{
+	  "return_code": 0,
+	  "message": "success",
+	  "data": null
+	}
 AUTHOR:
   {{range .Authors}}{{ . }}{{end}}
 `
@@ -127,12 +152,12 @@ AUTHOR:
 		var dbLocation string
 		if file == "" && config == "" {
 			context.ReturnCode = -1
-			context.Message = "No DBShield config file or boltdb file input"
+			context.Message = errConfigFileNotFound.Error()
 			return context.Print()
 		} else if config != "" {
 			if _, err := os.Stat(config); os.IsNotExist(err) {
 				context.ReturnCode = -1
-				context.Message = "DBShield config file not found!"
+				context.Message = errConfigFileNotFound.Error()
 				return context.Print()
 			}
 			viper.SetConfigFile(config)
@@ -140,7 +165,7 @@ AUTHOR:
 			err := viper.ReadInConfig()
 			if err != nil {
 				context.ReturnCode = -1
-				context.Message = "DBShield config file read error!"
+				context.Message = errConfigFileReadError.Error()
 				return context.Print()
 			}
 			TargetIP, err := strConfig("targetIP")
@@ -156,7 +181,7 @@ AUTHOR:
 		// check if db file exist, check DBShield config first
 		if _, err := os.Stat(dbLocation); os.IsNotExist(err) {
 			context.ReturnCode = -1
-			context.Message = "DB file not found!"
+			context.Message = errDBFileNotFound.Error()
 			return context.Print()
 		}
 
@@ -172,9 +197,10 @@ AUTHOR:
 		case "set":
 			if bucket != "" && key != "" && value != "" {
 				err := updateBucketKey(dbLocation, bucket, key, value)
-				if err != nil {
+				if err == nil {
 					return succeedOperationContext.Print()
 				}
+				failedOperationContext.Message = err.Error()
 			}
 			return failedOperationContext.Print()
 		case "delete":
@@ -183,6 +209,7 @@ AUTHOR:
 				if err == nil {
 					return succeedOperationContext.Print()
 				}
+				failedOperationContext.Message = err.Error()
 			}
 			return failedOperationContext.Print()
 		default:
@@ -193,12 +220,14 @@ AUTHOR:
 						succeedOperationContext.Data = data
 						return succeedOperationContext.Print()
 					}
+					failedOperationContext.Message = errKeyNotExist.Error()
 				} else {
 					data := getBucketKeys(dbLocation, bucket)
 					if data != nil {
 						succeedOperationContext.Data = data
 						return succeedOperationContext.Print()
 					}
+					failedOperationContext.Message = errBucketHasNoKeys.Error()
 				}
 			} else {
 				// fmt.Println("get bucketlist")
@@ -207,12 +236,26 @@ AUTHOR:
 					succeedOperationContext.Data = data
 					return succeedOperationContext.Print()
 				}
+				failedOperationContext.Message = errNotBuckets.Error()
 			}
 			return failedOperationContext.Print()
 		}
 	}
 	app.Run(os.Args)
 }
+
+// all errors
+var (
+	errWrongArgs           = errors.New("Error: wrong arguements")
+	errBucketNotExist      = errors.New("Error: bucket not exist")
+	errWrongKeyPrefix      = errors.New("Error: Wrong key prefix")
+	errKeyNotExist         = errors.New("Error: key not exist")
+	errNotBuckets          = errors.New("Error: no buckets")
+	errBucketHasNoKeys     = errors.New("Error: buckrt has no keys")
+	errDBFileNotFound      = errors.New("Error: db file not found")
+	errConfigFileNotFound  = errors.New("Error: config file not found")
+	errConfigFileReadError = errors.New("Error: config file read error")
+)
 
 // Context return data
 type Context struct {
@@ -335,7 +378,7 @@ func deleteBucketKey(file string, bucket string, key string) error {
 
 	dst, err := formatStringToKey(key)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	return db.Update(func(tx *bolt.Tx) error {
@@ -343,13 +386,13 @@ func deleteBucketKey(file string, bucket string, key string) error {
 		if b != nil {
 			return b.Delete(dst)
 		}
-		return nil
+		return errBucketNotExist
 	})
 }
 
 func formatStringToKey(key string) (dst []byte, err error) {
 	if !strings.HasPrefix(key, "0x") {
-		return []byte{}, errors.New("wrong prefix")
+		return []byte{}, errWrongKeyPrefix
 	}
 	akey := []byte(key[2:])
 	dst = make([]byte, hex.DecodedLen(len(akey)))
@@ -364,7 +407,7 @@ func updateBucketKey(file string, bucket string, key string, value string) error
 
 	dst, err := formatStringToKey(key)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	patternOfValue := Pattern(value)
@@ -372,13 +415,10 @@ func updateBucketKey(file string, bucket string, key string, value string) error
 	return db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b != nil {
-			if b != nil {
-				b.Delete(dst)
-				return b.Put(patternOfValue, []byte(value))
-			}
-			return nil
+			b.Delete(dst)
+			return b.Put(patternOfValue, []byte(value))
 		}
-		return nil
+		return errBucketNotExist
 	})
 }
 
