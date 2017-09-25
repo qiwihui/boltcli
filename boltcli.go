@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +14,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/spf13/viper"
 	"github.com/urfave/cli"
+	"github.com/xwb1989/sqlparser"
 )
 
 func main() {
@@ -364,11 +367,36 @@ func updateBucketKey(file string, bucket string, key string, value string) error
 		return nil
 	}
 
+	patternOfValue := Pattern(value)
+
 	return db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b != nil {
-			return b.Put(dst, []byte(value))
+			if b != nil {
+				b.Delete(dst)
+				return b.Put(patternOfValue, []byte(value))
+			}
+			return nil
 		}
 		return nil
 	})
+}
+
+//Pattern returns pattern of given query
+func Pattern(query string) []byte {
+	tokenizer := sqlparser.NewStringTokenizer(query)
+	buf := bytes.Buffer{}
+	l := make([]byte, 4)
+	for {
+		typ, val := tokenizer.Scan()
+		switch typ {
+		case sqlparser.ID: //table, database, variable & ... names
+			buf.Write(val)
+		case 0: //End of query
+			return buf.Bytes()
+		default:
+			binary.BigEndian.PutUint32(l, uint32(typ))
+			buf.Write(l)
+		}
+	}
 }
