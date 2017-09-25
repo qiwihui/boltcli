@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -304,12 +306,19 @@ func getBucketKeyValue(file string, bucket string, key string) interface{} {
 	db := getDb(file)
 	defer db.Close()
 
-	var returnValue []byte
+	dst, err := formatStringToKey(key)
+	if err != nil {
+		return nil
+	}
+
+	returnValue := []byte{}
 	db.View(func(tx *bolt.Tx) error {
 		curBucket := tx.Bucket([]byte(bucket))
-		if strings.Index(string(key), "_client_") == -1 && strings.Index(string(key), "_user_") == -1 {
-			value := curBucket.Get([]byte(key))
-			returnValue = value
+		if curBucket != nil {
+			if strings.Index(string(dst), "_client_") == -1 && strings.Index(string(dst), "_user_") == -1 {
+				value := curBucket.Get(dst)
+				returnValue = value
+			}
 		}
 		return nil
 	})
@@ -321,13 +330,28 @@ func deleteBucketKey(file string, bucket string, key string) error {
 	db := getDb(file)
 	defer db.Close()
 
+	dst, err := formatStringToKey(key)
+	if err != nil {
+		return nil
+	}
+
 	return db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b != nil {
-			return b.Delete([]byte(key))
+			return b.Delete(dst)
 		}
 		return nil
 	})
+}
+
+func formatStringToKey(key string) (dst []byte, err error) {
+	if !strings.HasPrefix(key, "0x") {
+		return []byte{}, errors.New("wrong prefix")
+	}
+	akey := []byte(key[2:])
+	dst = make([]byte, hex.DecodedLen(len(akey)))
+	hex.Decode(dst, akey)
+	return dst, nil
 }
 
 // 更新key
@@ -335,10 +359,15 @@ func updateBucketKey(file string, bucket string, key string, value string) error
 	db := getDb(file)
 	defer db.Close()
 
+	dst, err := formatStringToKey(key)
+	if err != nil {
+		return nil
+	}
+
 	return db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b != nil {
-			return b.Put([]byte(key), []byte(value))
+			return b.Put(dst, []byte(value))
 		}
 		return nil
 	})
