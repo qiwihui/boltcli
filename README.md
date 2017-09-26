@@ -9,7 +9,8 @@ USAGE:
 
 GLOBAL OPTIONS:
   --file FILE, -f FILE        boltdb FILE to view and update
-  --action value, -c value    action to update boltdb: get(default), set, delete
+  --config value, -c value    DBShield config file
+  --action value, -t value    action to update boltdb: get(default), set, delete
   --bucket BUCKET, -b BUCKET  boltdb BUCKET to view
   --key KEY, -k KEY           boltdb KEY to view
   --value VALUE, -r VALUE     boltdb VALUE to set
@@ -19,13 +20,13 @@ GLOBAL OPTIONS:
 
 INSTALLATION:
 
-  go install github.com/qiwihui/boltcli
+  go get github.com/qiwihui/boltcli
 
 EXAMPLES:
 
   Please install jq first.
 
-  1. $GOPATH/bin/boltcli -f dbshield.db -c get | jq
+  1. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t get | jq
   
   {
   "return_code": 0,
@@ -37,7 +38,7 @@ EXAMPLES:
   ]
   }
 
-  2. $GOPATH/bin/boltcli -f dbshield.db -c get -b pattern | jq
+  2. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t get -b pattern | jq
 
   {
   "return_code": 0,
@@ -58,5 +59,28 @@ EXAMPLES:
   ]
   }
 
+  3. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t get -b pattern -k 0x0000e0030000002a0000e0076669727374 | jq
+
+  {
+  "return_code": 0,
+  "message": "success",
+  "data": "select * from first"
+  }
+
+  4. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t set -b pattern -k 0x0000e0030000002a0000e0076669727374 -r "select * from first;" | jq
+ 
+  {
+  "return_code": 0,
+  "message": "success",
+  "data": null
+  }
+
+  5. $GOPATH/bin/boltcli -c /etc/dbshield.yml -t delete -b pattern -k 0x0000e0030000002a0000e0076669727374 | jq
+  
+  {
+    "return_code": 0,
+    "message": "success",
+    "data": null
+  }
 AUTHOR:
   qiwihui <qwh005007@gmail.com>

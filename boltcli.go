@@ -42,7 +42,7 @@ GLOBAL OPTIONS:
 
 INSTALLATION:
 
-  go install github.com/qiwihui/boltcli
+  go get github.com/qiwihui/boltcli
 
 EXAMPLES:
 
