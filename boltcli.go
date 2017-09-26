@@ -397,8 +397,8 @@ func addBucketValue(file string, bucket string, value string) (string, error) {
 	err := db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		if b != nil {
-			value := b.Get(patternOfValue)
-			if value != nil {
+			pValue := b.Get(patternOfValue)
+			if pValue != nil {
 				return errKeyAlreadyExist
 			}
 			return b.Put(patternOfValue, []byte(value))
