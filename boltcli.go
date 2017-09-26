@@ -194,6 +194,20 @@ AUTHOR:
 		// fmt.Println("value: ", value)
 
 		switch action {
+		case "add":
+			if bucket != "" && value != "" {
+				key, err := addBucketValue(dbLocation, bucket, value)
+				if err == nil {
+					var keyJ struct {
+						Key string `json:"key"`
+					}
+					keyJ.Key = key
+					succeedOperationContext.Data = keyJ
+					return succeedOperationContext.Print()
+				}
+				failedOperationContext.Message = err.Error()
+			}
+			return failedOperationContext.Print()
 		case "set":
 			if bucket != "" && key != "" && value != "" {
 				err := updateBucketKey(dbLocation, bucket, key, value)
@@ -249,9 +263,10 @@ var (
 	errWrongArgs           = errors.New("Error: wrong arguements")
 	errBucketNotExist      = errors.New("Error: bucket not exist")
 	errWrongKeyPrefix      = errors.New("Error: Wrong key prefix")
-	errKeyNotExist         = errors.New("Error: key not exist")
+	errKeyNotExist         = errors.New("Error: key not exists")
+	errKeyAlreadyExist     = errors.New("Error: key already exists")
 	errNotBuckets          = errors.New("Error: no buckets")
-	errBucketHasNoKeys     = errors.New("Error: buckrt has no keys")
+	errBucketHasNoKeys     = errors.New("Error: bucket has no keys")
 	errDBFileNotFound      = errors.New("Error: db file not found")
 	errConfigFileNotFound  = errors.New("Error: config file not found")
 	errConfigFileReadError = errors.New("Error: config file read error")
@@ -348,6 +363,7 @@ func getBucketKeys(file string, bucket string) interface{} {
 	return patterns
 }
 
+// 获取键值
 func getBucketKeyValue(file string, bucket string, key string) interface{} {
 	db := getDb(file)
 	defer db.Close()
@@ -369,6 +385,31 @@ func getBucketKeyValue(file string, bucket string, key string) interface{} {
 		return nil
 	})
 	return string(returnValue)
+}
+
+// 添加
+func addBucketValue(file string, bucket string, value string) (string, error) {
+	db := getDb(file)
+	defer db.Close()
+
+	patternOfValue := Pattern(value)
+
+	err := db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucket))
+		if b != nil {
+			value := b.Get(patternOfValue)
+			if value != nil {
+				return errKeyAlreadyExist
+			}
+			return b.Put(patternOfValue, []byte(value))
+		}
+		return errBucketNotExist
+	})
+	if err != nil {
+		return "", err
+	}
+	sx16 := fmt.Sprintf("0x%x", patternOfValue)
+	return sx16, nil
 }
 
 // 删除 key
