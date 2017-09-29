@@ -25,6 +25,8 @@ func main() {
 		key    string
 		value  string
 		bucket string
+		start  int
+		length int
 	)
 
 	cli.AppHelpTemplate = `
@@ -145,6 +147,18 @@ AUTHOR:
 			Usage:       "boltdb `VALUE` to set",
 			Destination: &value,
 		},
+		cli.IntFlag{
+			Name:        "start, s",
+			Usage:       "Pagination to start",
+			Value:       0,
+			Destination: &start,
+		},
+		cli.IntFlag{
+			Name:        "length, l",
+			Usage:       "Pagination, length",
+			Value:       10,
+			Destination: &length,
+		},
 	}
 	app.Action = func(c *cli.Context) error {
 
@@ -236,7 +250,8 @@ AUTHOR:
 					}
 					failedOperationContext.Message = errKeyNotExist.Error()
 				} else {
-					data := getBucketKeys(dbLocation, bucket)
+					// pagination
+					data := getBucketKeys(dbLocation, bucket, start, length)
 					if data != nil {
 						succeedOperationContext.Data = data
 						return succeedOperationContext.Print()
@@ -336,9 +351,16 @@ func getBuckets(file string) interface{} {
 }
 
 // 获取全部键值
-func getBucketKeys(file string, bucket string) interface{} {
+func getBucketKeys(file string, bucket string, start int, length int) interface{} {
 	db := getDb(file)
 	defer db.Close()
+
+	if start == 0 {
+		start = 0
+	}
+	if length == 0 {
+		length = 10
+	}
 
 	type Pattern struct {
 		Key   string `json:"key"`
@@ -347,7 +369,7 @@ func getBucketKeys(file string, bucket string) interface{} {
 	patterns := []Pattern{}
 
 	db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("pattern"))
+		b := tx.Bucket([]byte(bucket))
 		if b != nil {
 			b.ForEach(func(k, v []byte) error {
 				if strings.Index(string(k), "_client_") == -1 && strings.Index(string(k), "_user_") == -1 {
@@ -360,7 +382,20 @@ func getBucketKeys(file string, bucket string) interface{} {
 		}
 		return nil
 	})
-	return patterns
+	start = min(start, len(patterns))
+	if length == -1 {
+		length = len(patterns)
+	} else {
+		length = min(len(patterns)-start, length)
+	}
+	return patterns[start : start+length]
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // 获取键值
