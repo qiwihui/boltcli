@@ -1,4 +1,4 @@
-
+```
 boltcli - view and update boltdb file in your terminal
 
 VERSION:
@@ -84,3 +84,4 @@ EXAMPLES:
   }
 AUTHOR:
   qiwihui <qwh005007@gmail.com>
+```
